@@ -16,6 +16,7 @@
     .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; }
     .btn-primary { background: #0284c7; width: 100%; }
     .btn-print { background: #475569; }
+    .btn-receipt-paid { background: #0f766e; }
     .btn-sticker { background: #7c3aed; }
     .btn-deliver { background: #2563eb; }
     .btn-reopen { background: #d97706; }
@@ -120,13 +121,13 @@
         </select>
 
         <div class="filter-bar" id="statusFilters">
-          <button class="chip active" onclick="setStatusFilter('all', this)">الكل</button>
-          <button class="chip" onclick="setStatusFilter('working', this)">قيد الفحص</button>
-          <button class="chip" onclick="setStatusFilter('parts', this)">انتظار قطع غيار</button>
-          <button class="chip" onclick="setStatusFilter('done', this)">جاهز للتسليم</button>
-          <button class="chip" onclick="setStatusFilter('delivered', this)">تم التسليم</button>
-          <button class="chip" onclick="setStatusFilter('rejected', this)">مرفوض</button>
-          <button class="chip" onclick="setStatusFilter('overdue', this)">متأخر +7 أيام</button>
+          <button class="chip active" data-filter="all" onclick="setStatusFilter('all', this)">الكل (0)</button>
+          <button class="chip" data-filter="working" onclick="setStatusFilter('working', this)">قيد الفحص (0)</button>
+          <button class="chip" data-filter="parts" onclick="setStatusFilter('parts', this)">انتظار قطع غيار (0)</button>
+          <button class="chip" data-filter="done" onclick="setStatusFilter('done', this)">جاهز للتسليم (0)</button>
+          <button class="chip" data-filter="delivered" onclick="setStatusFilter('delivered', this)">تم التسليم (0)</button>
+          <button class="chip" data-filter="rejected" onclick="setStatusFilter('rejected', this)">مرفوض (0)</button>
+          <button class="chip" data-filter="overdue" onclick="setStatusFilter('overdue', this)">متأخر +7 أيام (0)</button>
         </div>
 
         <div id="ticketsList"></div>
@@ -149,6 +150,16 @@
     const statusText = {
       'new': 'تم الاستلام', 'working': 'جاري الصيانة', 'parts': 'انتظار قطع غيار',
       'done': 'جاهز للاستلام', 'delivered': 'تم التسليم', 'rejected': 'مرفوض'
+    };
+
+    const filterLabels = {
+      'all': 'الكل',
+      'working': 'قيد الفحص',
+      'parts': 'انتظار قطع غيار',
+      'done': 'جاهز للتسليم',
+      'delivered': 'تم التسليم',
+      'rejected': 'مرفوض',
+      'overdue': 'متأخر +7 أيام'
     };
 
     function scrollToForm() {
@@ -274,9 +285,29 @@
       return codeMatch || nameMatch || phoneMatch || deviceMatch;
     }
 
+    function updateReceptionCounts(techFilter, searchVal) {
+      const counts = { all: 0, working: 0, parts: 0, done: 0, delivered: 0, rejected: 0, overdue: 0 };
+      latestDocs.forEach(({ data: d }) => {
+        if (techFilter !== 'all' && d.techEmail !== techFilter) return;
+        if (!matchesSearch(d, searchVal)) return;
+        counts.all++;
+        if (counts[d.status] !== undefined) counts[d.status]++;
+        if (isOverdueTicket(d)) counts.overdue++;
+      });
+
+      document.querySelectorAll('#statusFilters .chip').forEach(chip => {
+        const key = chip.getAttribute('data-filter');
+        if (key && filterLabels[key]) {
+          chip.innerText = `${filterLabels[key]} (${counts[key] || 0})`;
+        }
+      });
+    }
+
     function renderReceptionList() {
       const techFilter = document.getElementById('filterTech').value;
       const searchVal = document.getElementById('quickSearch').value;
+      updateReceptionCounts(techFilter, searchVal);
+
       const list = document.getElementById('ticketsList');
       list.innerHTML = '';
 
@@ -326,6 +357,7 @@
             <div class="actions">
               <a href="tel:${d.phone}" class="btn btn-sm btn-call">اتصال بالعميل</a>
               <button class="btn btn-sm btn-print" onclick='printCustomerReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.finalCost)})'>طباعة ريسيت</button>
+              <button class="btn btn-sm btn-receipt-paid" onclick='printCollectionReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.finalCost)}, ${JSON.stringify(deliveredStr)})'>إيصال تحصيل</button>
               <button class="btn btn-sm btn-sticker" onclick='printDeviceSticker(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.techName)})'>طباعة استيكر</button>
               ${d.status !== 'delivered' ? `<button class="btn btn-sm btn-deliver" onclick="markDelivered('${id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
               ${reopenBtn}
@@ -423,6 +455,24 @@
         <p>التكلفة المبدئية: ${finalCost ? finalCost + ' ج.م' : 'بعد الفحص'}</p>
         <hr>
         <p style="font-size:11px; text-align:center;">يرجى الاحتفاظ بالإيصال عند الاستلام</p>
+      `;
+      window.print();
+    }
+
+    function printCollectionReceipt(ticketId, customerName, phone, deviceType, finalCost, deliveredStr) {
+      const p = document.getElementById('printArea');
+      p.innerHTML = `
+        <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:6px;">
+          <h3 style="margin:0;">إيصال تحصيل وتسليم</h3>
+          <p style="margin:4px 0;">كود: <strong>${ticketId}</strong></p>
+        </div>
+        <p>العميل: ${customerName}</p>
+        <p>الموبايل: ${phone}</p>
+        <p>الجهاز: ${deviceType}</p>
+        <p><strong>المبلغ المحصل: ${finalCost || 0} ج.م</strong></p>
+        ${deliveredStr ? `<p style="font-size:11px;">تاريخ التسليم: ${deliveredStr}</p>` : ''}
+        <hr>
+        <p style="font-size:11px; text-align:center;">تم استلام الجهاز وتسوية الحساب</p>
       `;
       window.print();
     }

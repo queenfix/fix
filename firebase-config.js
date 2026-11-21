@@ -62,7 +62,33 @@ function formatDateTime(ts) {
   });
 }
 
+function playNewDeviceTone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const notes = [
+      { freq: 659.25, start: 0.00, dur: 0.14 },
+      { freq: 880.00, start: 0.16, dur: 0.14 },
+      { freq: 1046.50, start: 0.32, dur: 0.24 }
+    ];
+    notes.forEach(n => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(n.freq, ctx.currentTime + n.start);
+      gain.gain.setValueAtTime(0.35, ctx.currentTime + n.start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + n.start + n.dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + n.start);
+      osc.stop(ctx.currentTime + n.start + n.dur);
+    });
+  } catch (e) {}
+}
+
 function triggerNewDeviceNotification(ticketData) {
+  playNewDeviceTone();
   if ("Notification" in window && Notification.permission === "granted") {
     new Notification("جهاز جديد للصيانة: " + ticketData.deviceType, {
       body: "العميل: " + ticketData.customerName + " | العطل: " + ticketData.issue,
