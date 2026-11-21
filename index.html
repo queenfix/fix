@@ -26,7 +26,6 @@
     .row:last-child { border-bottom: none; }
     .label { color: #94a3b8; }
     .notes { background: #0f172a; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 0.9rem; color: #cbd5e1; }
-    .device-img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; margin-top: 10px; border: 1px solid #334155; }
     .wa-btn { display: block; text-align: center; background: #16a34a; color: #fff; text-decoration: none; padding: 11px 14px; border-radius: 8px; font-weight: bold; margin-top: 12px; font-size: 0.95rem; }
   </style>
 </head>
@@ -124,7 +123,6 @@
             <div class="row"><span class="label">رقم المهندس:</span><span dir="ltr">${techInfo.phone}</span></div>
             <div class="row"><span class="label">التكلفة:</span><strong style="color:#38bdf8;">${d.finalCost ? d.finalCost + ' ج.م' : 'تحدد بعد الفحص'}</strong></div>
             ${d.publicNotes ? `<div class="notes"><strong>تقرير الصيانة:</strong> ${d.publicNotes}</div>` : ''}
-            ${d.photoBase64 ? `<img src="${d.photoBase64}" class="device-img" alt="صورة الجهاز">` : ''}
             <a href="https://wa.me/${waPhone}?text=${waText}" target="_blank" class="wa-btn">مراسلة المهندس على واتساب</a>
           </div>
         `;
