@@ -16,6 +16,7 @@
     .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; width: auto; }
     .btn-save { background: #16a34a; }
     .btn-wa { background: #16a34a; text-decoration: none; display: inline-block; }
+    .btn-ready { background: #0284c7; text-decoration: none; display: inline-block; }
     .btn-call { background: #0d9488; text-decoration: none; display: inline-block; }
     .btn-out { background: #475569; width: auto; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -57,6 +58,7 @@
         <input type="tel" id="qPhone" placeholder="رقم الموبايل">
         <input type="text" id="qType" placeholder="نوع الجهاز">
         <textarea id="qIssue" rows="2" placeholder="وصف العطل"></textarea>
+        <textarea id="qInternalNotes" rows="2" placeholder="ملاحظات داخلية للمهندسين فقط"></textarea>
         <div class="checks">
           <label><input type="checkbox" value="بطارية"> بطارية</label>
           <label><input type="checkbox" value="شاحن/كابل باور"> شاحن/باور</label>
@@ -67,6 +69,10 @@
         <label style="font-size:0.85rem; color:#94a3b8;">تصوير الجهاز (اختياري):</label>
         <input type="file" id="qPhoto" accept="image/*" capture="environment">
         <button class="btn btn-save" onclick="addQuickTicket()">حفظ الجهاز</button>
+      </div>
+
+      <div class="box" style="padding:12px;">
+        <input type="text" id="techSearch" style="margin:0;" placeholder="بحث سريع بالاسم، الموبايل، أو الكود..." oninput="renderTechTickets()">
       </div>
 
       <div class="filter-bar" id="techStatusFilters">
@@ -141,6 +147,7 @@
       const cPhone = document.getElementById('qPhone').value.trim();
       const dType = document.getElementById('qType').value.trim();
       const dIssue = document.getElementById('qIssue').value.trim();
+      const internalNotes = document.getElementById('qInternalNotes').value.trim();
       const photoFile = document.getElementById('qPhoto').files[0];
 
       if (!cName || !cPhone || !dType || !dIssue) {
@@ -160,7 +167,7 @@
           serial: '', issue: dIssue, accessories: accs || 'لا يوجد',
           photoBase64: photoBase64 || '',
           techEmail: currentEmail, techName, status: 'new',
-          finalCost: 0, partsCost: 0, publicNotes: '',
+          finalCost: 0, partsCost: 0, publicNotes: '', internalNotes,
           reminderDisabled: false,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           readyAt: null,
@@ -171,10 +178,23 @@
           document.getElementById('qPhone').value = '';
           document.getElementById('qType').value = '';
           document.getElementById('qIssue').value = '';
+          document.getElementById('qInternalNotes').value = '';
           document.getElementById('qPhoto').value = '';
           toggleQuickAdd();
         });
       });
+    }
+
+    function matchesTechSearch(d, query) {
+      if (!query) return true;
+      const q = query.trim().toLowerCase();
+      const code = (d.ticketId || '').toLowerCase();
+      const digitsOnly = q.replace(/^fix-?/, '');
+      const codeMatch = code.includes(q) || (digitsOnly && code.endsWith('-' + digitsOnly));
+      const nameMatch = (d.customerName || '').toLowerCase().includes(q);
+      const phoneMatch = (d.phone || '').toLowerCase().includes(q);
+      const deviceMatch = (d.deviceType || '').toLowerCase().includes(q);
+      return codeMatch || nameMatch || phoneMatch || deviceMatch;
     }
 
     function subscribeMyWork(email) {
@@ -202,11 +222,13 @@
 
     function renderTechTickets() {
       const container = document.getElementById('myTickets');
+      const searchVal = document.getElementById('techSearch').value;
       container.innerHTML = '';
       let count = 0;
 
       latestTechDocs.forEach(({ id, data: d }) => {
         if (currentTechFilter !== 'all' && d.status !== currentTechFilter) return;
+        if (!matchesTechSearch(d, searchVal)) return;
         count++;
 
         const cycle = getReminderCycle(d.createdAt);
@@ -218,7 +240,10 @@
         const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
         const siteUrl = window.location.href.replace('tech.html', 'index.html') + '?q=' + d.ticketId;
         const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nبخصوص جهازك (${d.deviceType}) - كود ${d.ticketId}\nيمكنك متابعة الحالة من هنا:\n${siteUrl}`);
-        const showWaButton = (currentEmail === 'amrataallah@shop.local' || currentEmail === 'ahmedshaheen@shop.local');
+        const readyMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nتم إصلاح جهازك (${d.deviceType}) - كود ${d.ticketId} وهو جاهز للاستلام.\nالتكلفة النهائية: ${d.finalCost || 0} ج.م\nتفاصيل المتابعة:\n${siteUrl}`);
+
+        const isAmrOrAhmed = (currentEmail === 'amrataallah@shop.local' || currentEmail === 'ahmedshaheen@shop.local');
+        const showReadyAlertBtn = isAmrOrAhmed && d.status === 'done';
 
         const createdStr = formatDateTime(d.createdAt);
         const readyStr = formatDateTime(d.readyAt);
@@ -267,17 +292,21 @@
             <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
             <textarea id="nt_${id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
 
+            <label style="font-size:0.85rem; color:#fbbf24;">ملاحظات داخلية للمهندسين فقط (لا تظهر للزبون):</label>
+            <textarea id="in_${id}" rows="2" placeholder="ملاحظة فنية أو مكان قطعة غيار...">${d.internalNotes || ''}</textarea>
+
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <button class="btn btn-save" style="flex:1;" onclick="updateTicket('${id}')">حفظ وتحديث الحالة</button>
               <a href="tel:${d.phone}" class="btn btn-sm btn-call">اتصال</a>
-              ${showWaButton ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-sm btn-wa">واتساب</a>` : ''}
+              ${isAmrOrAhmed ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-sm btn-wa">واتساب</a>` : ''}
+              ${showReadyAlertBtn ? `<a href="https://wa.me/${waPhone}?text=${readyMsg}" target="_blank" class="btn btn-sm btn-ready">تنبيه جاهز للاستلام</a>` : ''}
             </div>
           </div>
         `;
       });
 
       if (count === 0) {
-        container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة مطابقة للفلتر الحالي.</p></div>';
+        container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة مطابقة للبحث أو الفلتر الحالي.</p></div>';
       }
     }
 
@@ -286,8 +315,9 @@
       const finalCost = Number(document.getElementById('fc_' + docId).value) || 0;
       const partsCost = Number(document.getElementById('pc_' + docId).value) || 0;
       const publicNotes = document.getElementById('nt_' + docId).value.trim();
+      const internalNotes = document.getElementById('in_' + docId).value.trim();
 
-      const updateObj = { status, finalCost, partsCost, publicNotes };
+      const updateObj = { status, finalCost, partsCost, publicNotes, internalNotes };
       if (status === 'done') {
         updateObj.readyAt = firebase.firestore.FieldValue.serverTimestamp();
       }

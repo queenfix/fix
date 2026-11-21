@@ -16,6 +16,7 @@
     .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; }
     .btn-primary { background: #0284c7; width: 100%; }
     .btn-print { background: #475569; }
+    .btn-sticker { background: #7c3aed; }
     .btn-deliver { background: #2563eb; }
     .btn-warn { background: #b45309; }
     .btn-ok { background: #15803d; }
@@ -30,6 +31,7 @@
     .chip { padding: 6px 12px; border-radius: 20px; border: 1px solid #334155; background: #0f172a; color: #cbd5e1; font-size: 0.82rem; cursor: pointer; font-weight: bold; }
     .chip.active { background: #0284c7; border-color: #0284c7; color: #fff; }
     .ticket-card { background: #1e293b; padding: 14px; border-radius: 10px; margin-bottom: 12px; border-right: 4px solid #38bdf8; }
+    .internal-note { background: #0f172a; border-right: 3px solid #f59e0b; padding: 8px 10px; border-radius: 6px; margin-top: 8px; font-size: 0.85rem; color: #fde68a; }
     .timeline-mini { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; line-height: 1.6; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -77,6 +79,7 @@
         <input type="text" id="dType" placeholder="نوع الجهاز والموديل (مثال: PS4 Slim / لابتوب Dell)">
         <input type="text" id="dSerial" placeholder="السيريال نمبر (اختياري)">
         <textarea id="dIssue" rows="2" placeholder="وصف العطل"></textarea>
+        <textarea id="dInternalNotes" rows="2" placeholder="ملاحظات داخلية للفنيين والإدارة فقط (لا تظهر للعميل)"></textarea>
 
         <label style="font-size:0.9rem; color:#94a3b8;">الملحقات المستلمة مع الجهاز:</label>
         <div class="checks">
@@ -104,6 +107,8 @@
 
       <div class="box">
         <h3>متابعة الأجهزة</h3>
+        <input type="text" id="quickSearch" placeholder="بحث سريع بالاسم، الموبايل، أو الكود..." oninput="renderReceptionList()">
+
         <select id="filterTech" onchange="renderReceptionList()">
           <option value="all">كل المهندسين</option>
           <option value="ahmedshaheen@shop.local">أحمد شاهين</option>
@@ -189,6 +194,7 @@
       const dType = document.getElementById('dType').value.trim();
       const dSerial = document.getElementById('dSerial').value.trim();
       const dIssue = document.getElementById('dIssue').value.trim();
+      const internalNotes = document.getElementById('dInternalNotes').value.trim();
       const estCost = Number(document.getElementById('estCost').value) || 0;
       const [techEmail, techName] = document.getElementById('techSelect').value.split('|');
       const photoFile = document.getElementById('dPhoto').files[0];
@@ -207,7 +213,7 @@
           serial: dSerial, issue: dIssue, accessories: accs || 'لا يوجد',
           photoBase64: photoBase64 || '',
           techEmail, techName, status: 'new',
-          finalCost: estCost, partsCost: 0, publicNotes: '',
+          finalCost: estCost, partsCost: 0, publicNotes: '', internalNotes,
           reminderDisabled: false,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           readyAt: null,
@@ -219,6 +225,7 @@
           document.getElementById('dType').value = '';
           document.getElementById('dSerial').value = '';
           document.getElementById('dIssue').value = '';
+          document.getElementById('dInternalNotes').value = '';
           document.getElementById('estCost').value = '';
           document.getElementById('dPhoto').value = '';
           document.querySelectorAll('.checks input:checked').forEach(c => c.checked = false);
@@ -247,14 +254,28 @@
       });
     }
 
+    function matchesSearch(d, query) {
+      if (!query) return true;
+      const q = query.trim().toLowerCase();
+      const code = (d.ticketId || '').toLowerCase();
+      const digitsOnly = q.replace(/^fix-?/, '');
+      const codeMatch = code.includes(q) || (digitsOnly && code.endsWith('-' + digitsOnly));
+      const nameMatch = (d.customerName || '').toLowerCase().includes(q);
+      const phoneMatch = (d.phone || '').toLowerCase().includes(q);
+      const deviceMatch = (d.deviceType || '').toLowerCase().includes(q);
+      return codeMatch || nameMatch || phoneMatch || deviceMatch;
+    }
+
     function renderReceptionList() {
       const techFilter = document.getElementById('filterTech').value;
+      const searchVal = document.getElementById('quickSearch').value;
       const list = document.getElementById('ticketsList');
       list.innerHTML = '';
 
       latestDocs.forEach(({ id, data: d }) => {
         if (techFilter !== 'all' && d.techEmail !== techFilter) return;
         if (currentStatusFilter !== 'all' && d.status !== currentStatusFilter) return;
+        if (!matchesSearch(d, searchVal)) return;
 
         const reminderBtn = currentUserRole === 'admin' && d.status !== 'delivered'
           ? `<button class="btn btn-sm ${d.reminderDisabled ? 'btn-ok' : 'btn-warn'}" onclick="toggleReminder('${id}', ${!d.reminderDisabled})">${d.reminderDisabled ? 'تفعيل التذكير' : 'إلغاء التذكير'}</button>`
@@ -272,10 +293,11 @@
             </div>
             <div style="font-size:0.9rem; color:#cbd5e1; margin:6px 0;">
               الموبايل: <span dir="ltr">${d.phone}</span> | الجهاز: ${d.deviceType}<br>
-              العطل: ${d.issue}<br>
+              العطل: ${d.issue} | الملحقات: ${d.accessories}<br>
               المهندس: ${d.techName} | التكلفة: ${d.finalCost} ج.م
               ${d.reminderDisabled ? '<br><span style="color:#fbbf24;">تم إلغاء تذكير الاتصال لهذا العميل</span>' : ''}
             </div>
+            ${d.internalNotes ? `<div class="internal-note"><strong>ملاحظة داخلية:</strong> ${d.internalNotes}</div>` : ''}
             <div class="timeline-mini">
               ${createdStr ? `استلام: ${createdStr}` : ''}
               ${readyStr ? ` | جاهز: ${readyStr}` : ''}
@@ -284,7 +306,8 @@
             ${d.photoBase64 ? `<img src="${d.photoBase64}" class="thumb" alt="صورة الجهاز">` : ''}
             <div class="actions">
               <a href="tel:${d.phone}" class="btn btn-sm btn-call">اتصال بالعميل</a>
-              <button class="btn btn-sm btn-print" onclick='printReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.finalCost)})'>طباعة إيصال</button>
+              <button class="btn btn-sm btn-print" onclick='printCustomerReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.finalCost)})'>طباعة ريسيت</button>
+              <button class="btn btn-sm btn-sticker" onclick='printDeviceSticker(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.techName)})'>طباعة استيكر</button>
               ${d.status !== 'delivered' ? `<button class="btn btn-sm btn-deliver" onclick="markDelivered('${id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
               ${d.techEmail === 'beytibee@shop.local' && d.status !== 'delivered' ? `<button class="btn btn-sm" style="background:#0284c7;" onclick="quickFinish('${id}')">إنهاء صيانة يوسف</button>` : ''}
               ${reminderBtn}
@@ -322,7 +345,7 @@
       }
     }
 
-    function printReceipt(ticketId, customerName, phone, deviceType, issue, accessories, finalCost) {
+    function printCustomerReceipt(ticketId, customerName, phone, deviceType, issue, accessories, finalCost) {
       const p = document.getElementById('printArea');
       p.innerHTML = `
         <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:6px;">
@@ -334,9 +357,26 @@
         <p>الجهاز: ${deviceType}</p>
         <p>العطل: ${issue}</p>
         <p>الملحقات: ${accessories}</p>
-        <p>التكلفة المبدئية: ${finalCost || 'بعد الفحص'}</p>
+        <p>التكلفة المبدئية: ${finalCost ? finalCost + ' ج.م' : 'بعد الفحص'}</p>
         <hr>
         <p style="font-size:11px; text-align:center;">يرجى الاحتفاظ بالإيصال عند الاستلام</p>
+      `;
+      window.print();
+    }
+
+    function printDeviceSticker(ticketId, customerName, deviceType, issue, accessories, techName) {
+      const p = document.getElementById('printArea');
+      p.innerHTML = `
+        <div style="border:2px solid #000; padding:6px; border-radius:4px;">
+          <div style="display:flex; justify-content:space-between; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:4px;">
+            <strong>${ticketId}</strong>
+            <span>${techName}</span>
+          </div>
+          <div style="font-size:12px;"><strong>العميل:</strong> ${customerName}</div>
+          <div style="font-size:12px;"><strong>الجهاز:</strong> ${deviceType}</div>
+          <div style="font-size:12px;"><strong>العطل:</strong> ${issue}</div>
+          <div style="font-size:11px;"><strong>الملحقات:</strong> ${accessories}</div>
+        </div>
       `;
       window.print();
     }
