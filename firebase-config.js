@@ -51,6 +51,17 @@ function getReminderCycle(createdAt) {
   return Math.floor(diffDays / 7);
 }
 
+function formatDateTime(ts) {
+  if (!ts || !ts.toDate) return "";
+  return ts.toDate().toLocaleString("ar-EG", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function triggerNewDeviceNotification(ticketData) {
   if ("Notification" in window && Notification.permission === "granted") {
     new Notification("جهاز جديد للصيانة: " + ticketData.deviceType, {
@@ -81,4 +92,10 @@ function readImageAsCompressedBase64(file, callback) {
     img.src = e.target.result;
   };
   reader.readAsDataURL(file);
+}
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  });
 }

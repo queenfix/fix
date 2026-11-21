@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="manifest.json">
   <title>بوابة مهندسي الصيانة</title>
   <style>
     body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
@@ -14,10 +16,15 @@
     .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; width: auto; }
     .btn-save { background: #16a34a; }
     .btn-wa { background: #16a34a; text-decoration: none; display: inline-block; }
+    .btn-call { background: #0d9488; text-decoration: none; display: inline-block; }
     .btn-out { background: #475569; width: auto; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip { padding: 6px 12px; border-radius: 20px; border: 1px solid #334155; background: #1e293b; color: #cbd5e1; font-size: 0.82rem; cursor: pointer; font-weight: bold; }
+    .chip.active { background: #0284c7; border-color: #0284c7; color: #fff; }
     .card { background: #1e293b; padding: 16px; border-radius: 12px; margin-bottom: 14px; border-right: 5px solid #f59e0b; }
     .meta { font-size: 0.9rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
+    .timeline-mini { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
     .reminder-box { background: #7c2d12; color: #ffedd5; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 0.9rem; border: 1px solid #fb923c; }
     .checks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
     .checks label { background: #0f172a; padding: 5px 9px; border-radius: 6px; font-size: 0.85rem; display: flex; align-items: center; gap: 5px; }
@@ -62,6 +69,14 @@
         <button class="btn btn-save" onclick="addQuickTicket()">حفظ الجهاز</button>
       </div>
 
+      <div class="filter-bar" id="techStatusFilters">
+        <button class="chip active" onclick="setTechFilter('all', this)">الكل</button>
+        <button class="chip" onclick="setTechFilter('working', this)">قيد الفحص</button>
+        <button class="chip" onclick="setTechFilter('parts', this)">انتظار قطع غيار</button>
+        <button class="chip" onclick="setTechFilter('done', this)">جاهز للتسليم</button>
+        <button class="chip" onclick="setTechFilter('rejected', this)">مرفوض</button>
+      </div>
+
       <div id="myTickets"></div>
     </div>
   </div>
@@ -73,8 +88,17 @@
 
   <script>
     let currentEmail = '';
+    let currentTechFilter = 'all';
+    let latestTechDocs = [];
     let isFirstLoad = true;
     const knownDocIds = new Set();
+
+    function setTechFilter(st, btnEl) {
+      currentTechFilter = st;
+      document.querySelectorAll('#techStatusFilters .chip').forEach(c => c.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+      renderTechTickets();
+    }
 
     function handleLogin() {
       const u = document.getElementById('username').value;
@@ -105,7 +129,7 @@
         document.getElementById('loginView').style.display = 'none';
         document.getElementById('workView').style.display = 'block';
         document.getElementById('techTitle').innerText = "مهام المهندس: " + (entry ? entry.name : user.email);
-        loadMyWork(user.email);
+        subscribeMyWork(user.email);
       } else {
         document.getElementById('loginView').style.display = 'block';
         document.getElementById('workView').style.display = 'none';
@@ -138,7 +162,9 @@
           techEmail: currentEmail, techName, status: 'new',
           finalCost: 0, partsCost: 0, publicNotes: '',
           reminderDisabled: false,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          readyAt: null,
+          deliveredAt: null
         }).then(() => {
           alert("تم إضافة الجهاز: " + ticketId);
           document.getElementById('qName').value = '';
@@ -151,91 +177,108 @@
       });
     }
 
-    function loadMyWork(email) {
+    function subscribeMyWork(email) {
       db.collection('tickets').onSnapshot(snap => {
-        const container = document.getElementById('myTickets');
-        container.innerHTML = '';
-        let count = 0;
-
+        latestTechDocs = [];
         snap.forEach(doc => {
           const d = doc.data();
-
           if (!isFirstLoad && !knownDocIds.has(doc.id) && d.techEmail === email && d.status !== 'delivered') {
             triggerNewDeviceNotification(d);
           }
           knownDocIds.add(doc.id);
-
           if (d.status === 'delivered') return;
 
           const isMine = d.techEmail === email;
           const isAhmedCoveringYoussef = (email === 'ahmedshaheen@shop.local' && d.techEmail === 'beytibee@shop.local');
           if (!isMine && !isAhmedCoveringYoussef) return;
 
-          count++;
-
-          const cycle = getReminderCycle(d.createdAt);
-          const showReminder = (!d.reminderDisabled && cycle >= 1 && (
-            (email === 'amrataallah@shop.local' && d.techEmail === 'amrataallah@shop.local') ||
-            (email === 'ahmedshaheen@shop.local' && (d.techEmail === 'ahmedshaheen@shop.local' || d.techEmail === 'beytibee@shop.local'))
-          ));
-
-          const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
-          const siteUrl = window.location.href.replace('tech.html', 'index.html') + '?q=' + d.ticketId;
-          const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nبخصوص جهازك (${d.deviceType}) - كود ${d.ticketId}\nيمكنك متابعة الحالة من هنا:\n${siteUrl}`);
-          const showWaButton = (email === 'amrataallah@shop.local' || email === 'ahmedshaheen@shop.local');
-
-          container.innerHTML += `
-            <div class="card">
-              ${showReminder ? `<div class="reminder-box">تذكير رقم (${cycle}): مر ${cycle * 7} أيام أو أكثر على استلام الجهاز، يرجى الاتصال بالعميل (${d.customerName} - ${d.phone}).</div>` : ''}
-              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                <strong style="font-size:1.1rem; color:#fff;">${d.deviceType}</strong>
-                <span style="color:#38bdf8; font-weight:bold;">${d.ticketId}</span>
-              </div>
-              <div class="meta">
-                <strong>العميل:</strong> ${d.customerName} (${d.phone})<br>
-                <strong>المسؤول:</strong> ${d.techName}<br>
-                <strong>العطل:</strong> ${d.issue}<br>
-                <strong>الملحقات:</strong> ${d.accessories}
-              </div>
-              ${d.photoBase64 ? `<img src="${d.photoBase64}" class="thumb" alt="صورة الجهاز">` : ''}
-
-              <label style="font-size:0.85rem; color:#cbd5e1;">حالة الصيانة:</label>
-              <select id="st_${doc.id}">
-                <option value="new" ${d.status==='new'?'selected':''}>تم الاستلام</option>
-                <option value="working" ${d.status==='working'?'selected':''}>جاري الفحص والصيانة</option>
-                <option value="parts" ${d.status==='parts'?'selected':''}>في انتظار قطع غيار</option>
-                <option value="done" ${d.status==='done'?'selected':''}>تم الإصلاح - جاهز للاستلام</option>
-                <option value="rejected" ${d.status==='rejected'?'selected':''}>لا يمكن الإصلاح / مرفوض</option>
-              </select>
-
-              <div style="display:flex; gap:8px;">
-                <div style="flex:1;">
-                  <label style="font-size:0.85rem; color:#cbd5e1;">سعر الصيانة للزبون:</label>
-                  <input type="number" id="fc_${doc.id}" value="${d.finalCost || 0}">
-                </div>
-                <div style="flex:1;">
-                  <label style="font-size:0.85rem; color:#cbd5e1;">تكلفة قطع الغيار:</label>
-                  <input type="number" id="pc_${doc.id}" value="${d.partsCost || 0}">
-                </div>
-              </div>
-
-              <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
-              <textarea id="nt_${doc.id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
-
-              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-                <button class="btn btn-save" style="flex:1;" onclick="updateTicket('${doc.id}')">حفظ وتحديث الحالة</button>
-                ${showWaButton ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-sm btn-wa">واتساب</a>` : ''}
-              </div>
-            </div>
-          `;
+          latestTechDocs.push({ id: doc.id, data: d });
         });
 
         isFirstLoad = false;
-
-        if (count === 0) {
-          container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة معلقة حالياً.</p></div>';
-        }
+        renderTechTickets();
       });
+    }
+
+    function renderTechTickets() {
+      const container = document.getElementById('myTickets');
+      container.innerHTML = '';
+      let count = 0;
+
+      latestTechDocs.forEach(({ id, data: d }) => {
+        if (currentTechFilter !== 'all' && d.status !== currentTechFilter) return;
+        count++;
+
+        const cycle = getReminderCycle(d.createdAt);
+        const showReminder = (!d.reminderDisabled && cycle >= 1 && (
+          (currentEmail === 'amrataallah@shop.local' && d.techEmail === 'amrataallah@shop.local') ||
+          (currentEmail === 'ahmedshaheen@shop.local' && (d.techEmail === 'ahmedshaheen@shop.local' || d.techEmail === 'beytibee@shop.local'))
+        ));
+
+        const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
+        const siteUrl = window.location.href.replace('tech.html', 'index.html') + '?q=' + d.ticketId;
+        const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nبخصوص جهازك (${d.deviceType}) - كود ${d.ticketId}\nيمكنك متابعة الحالة من هنا:\n${siteUrl}`);
+        const showWaButton = (currentEmail === 'amrataallah@shop.local' || currentEmail === 'ahmedshaheen@shop.local');
+
+        const createdStr = formatDateTime(d.createdAt);
+        const readyStr = formatDateTime(d.readyAt);
+
+        container.innerHTML += `
+          <div class="card">
+            ${showReminder ? `<div class="reminder-box">تذكير رقم (${cycle}): مر ${cycle * 7} أيام أو أكثر على استلام الجهاز، يرجى الاتصال بالعميل (${d.customerName} - ${d.phone}).</div>` : ''}
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+              <strong style="font-size:1.1rem; color:#fff;">${d.deviceType}</strong>
+              <span style="color:#38bdf8; font-weight:bold;">${d.ticketId}</span>
+            </div>
+            <div class="meta">
+              <strong>العميل:</strong> ${d.customerName} (${d.phone})<br>
+              <strong>المسؤول:</strong> ${d.techName}<br>
+              <strong>العطل:</strong> ${d.issue}<br>
+              <strong>الملحقات:</strong> ${d.accessories}
+            </div>
+            ${(createdStr || readyStr) ? `
+              <div class="timeline-mini">
+                ${createdStr ? `استلام: ${createdStr}` : ''}
+                ${readyStr ? ` | جاهز: ${readyStr}` : ''}
+              </div>
+            ` : ''}
+            ${d.photoBase64 ? `<img src="${d.photoBase64}" class="thumb" alt="صورة الجهاز">` : ''}
+
+            <label style="font-size:0.85rem; color:#cbd5e1;">حالة الصيانة:</label>
+            <select id="st_${id}">
+              <option value="new" ${d.status==='new'?'selected':''}>تم الاستلام</option>
+              <option value="working" ${d.status==='working'?'selected':''}>جاري الفحص والصيانة</option>
+              <option value="parts" ${d.status==='parts'?'selected':''}>في انتظار قطع غيار</option>
+              <option value="done" ${d.status==='done'?'selected':''}>تم الإصلاح - جاهز للاستلام</option>
+              <option value="rejected" ${d.status==='rejected'?'selected':''}>لا يمكن الإصلاح / مرفوض</option>
+            </select>
+
+            <div style="display:flex; gap:8px;">
+              <div style="flex:1;">
+                <label style="font-size:0.85rem; color:#cbd5e1;">سعر الصيانة للزبون:</label>
+                <input type="number" id="fc_${id}" value="${d.finalCost || 0}">
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:0.85rem; color:#cbd5e1;">تكلفة قطع الغيار:</label>
+                <input type="number" id="pc_${id}" value="${d.partsCost || 0}">
+              </div>
+            </div>
+
+            <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
+            <textarea id="nt_${id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
+
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <button class="btn btn-save" style="flex:1;" onclick="updateTicket('${id}')">حفظ وتحديث الحالة</button>
+              <a href="tel:${d.phone}" class="btn btn-sm btn-call">اتصال</a>
+              ${showWaButton ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-sm btn-wa">واتساب</a>` : ''}
+            </div>
+          </div>
+        `;
+      });
+
+      if (count === 0) {
+        container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة مطابقة للفلتر الحالي.</p></div>';
+      }
     }
 
     function updateTicket(docId) {
@@ -244,9 +287,12 @@
       const partsCost = Number(document.getElementById('pc_' + docId).value) || 0;
       const publicNotes = document.getElementById('nt_' + docId).value.trim();
 
-      db.collection('tickets').doc(docId).update({
-        status, finalCost, partsCost, publicNotes
-      }).then(() => {
+      const updateObj = { status, finalCost, partsCost, publicNotes };
+      if (status === 'done') {
+        updateObj.readyAt = firebase.firestore.FieldValue.serverTimestamp();
+      }
+
+      db.collection('tickets').doc(docId).update(updateObj).then(() => {
         alert("تم تحديث حالة الجهاز بنجاح!");
       });
     }
