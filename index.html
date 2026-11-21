@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>متابعة حالة الصيانة</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
+    .container { max-width: 500px; margin: 20px auto; }
+    .header { text-align: center; margin-bottom: 24px; }
+    .header h1 { color: #38bdf8; margin-bottom: 6px; font-size: 1.6rem; }
+    .search-box { background: #1e293b; padding: 16px; border-radius: 12px; display: flex; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+    input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 1rem; }
+    button { padding: 12px 20px; border-radius: 8px; border: none; background: #0284c7; color: #fff; font-weight: bold; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #0369a1; }
+    .card { background: #1e293b; border-radius: 12px; padding: 16px; margin-top: 16px; border-right: 5px solid #38bdf8; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; margin-bottom: 10px; }
+    .st-new { background: #334155; color: #e2e8f0; }
+    .st-working { background: #854d0e; color: #fef08a; }
+    .st-parts { background: #9a3412; color: #fed7aa; }
+    .st-done { background: #166534; color: #bbf7d0; }
+    .st-delivered { background: #1e40af; color: #bfdbfe; }
+    .st-rejected { background: #991b1b; color: #fecaca; }
+    .row { display: flex; justify-content: space-between; margin: 8px 0; font-size: 0.95rem; border-bottom: 1px solid #334155; padding-bottom: 6px; }
+    .row:last-child { border-bottom: none; }
+    .label { color: #94a3b8; }
+    .notes { background: #0f172a; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 0.9rem; color: #cbd5e1; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>مركز الصيانة</h1>
+      <p style="color:#94a3b8; margin:0;">استعلم عن حالة جهازك برقم الموبايل أو كود الإيصال</p>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="اكتب رقم الموبايل أو الكود...">
+      <button onclick="searchTicket()">بحث</button>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <script>
+    const statusLabels = {
+      'new': { text: 'تم الاستلام - في الانتظار', cls: 'st-new' },
+      'working': { text: 'جاري الفحص والصيانة', cls: 'st-working' },
+      'parts': { text: 'في انتظار قطع غيار', cls: 'st-parts' },
+      'done': { text: 'تم الإصلاح - جاهز للاستلام', cls: 'st-done' },
+      'delivered': { text: 'تم التسليم للعميل', cls: 'st-delivered' },
+      'rejected': { text: 'لا يمكن الإصلاح / مرفوض', cls: 'st-rejected' }
+    };
+
+    window.onload = () => {
+      const params = new URLSearchParams(window.location.search);
+      const q = params.get('q');
+      if (q) {
+        document.getElementById('searchInput').value = q;
+        searchTicket();
+      }
+    };
+
+    function searchTicket() {
+      const val = document.getElementById('searchInput').value.trim();
+      const resultsDiv = document.getElementById('results');
+      if (!val) return;
+      resultsDiv.innerHTML = '<p style="text-align:center; color:#94a3b8;">جاري البحث...</p>';
+
+      db.collection('tickets').where('phone', '==', val).onSnapshot(snap => {
+        if (!snap.empty) {
+          renderCards(snap);
+        } else {
+          db.collection('tickets').where('ticketId', '==', val.toUpperCase()).onSnapshot(snap2 => {
+            if (!snap2.empty) {
+              renderCards(snap2);
+            } else {
+              resultsDiv.innerHTML = '<div class="card"><p style="text-align:center; margin:0;">لم يتم العثور على أجهزة بهذا الرقم أو الكود.</p></div>';
+            }
+          });
+        }
+      });
+    }
+
+    function renderCards(snapshot) {
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.innerHTML = '';
+      snapshot.forEach(doc => {
+        const d = doc.data();
+        const st = statusLabels[d.status] || statusLabels['new'];
+        resultsDiv.innerHTML += `
+          <div class="card">
+            <span class="badge ${st.cls}">${st.text}</span>
+            <div class="row"><span class="label">كود المتابعة:</span><strong>${d.ticketId}</strong></div>
+            <div class="row"><span class="label">العميل:</span><span>${d.customerName}</span></div>
+            <div class="row"><span class="label">الجهاز:</span><span>${d.deviceType}</span></div>
+            <div class="row"><span class="label">العطل المسجل:</span><span>${d.issue}</span></div>
+            <div class="row"><span class="label">المهندس المسؤول:</span><span>${d.techName}</span></div>
+            <div class="row"><span class="label">التكلفة:</span><strong style="color:#38bdf8;">${d.finalCost ? d.finalCost + ' ج.م' : 'تحدد بعد الفحص'}</strong></div>
+            ${d.publicNotes ? `<div class="notes"><strong>تقرير الصيانة:</strong> ${d.publicNotes}</div>` : ''}
+          </div>
+        `;
+      });
+    }
+  </script>
+</body>
+</html>

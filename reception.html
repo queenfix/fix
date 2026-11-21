@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>الاستقبال والإدارة</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
+    .container { max-width: 700px; margin: 0 auto; }
+    .box { background: #1e293b; padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+    h2, h3 { margin-top: 0; color: #38bdf8; }
+    input, select, textarea { width: 100%; padding: 10px; margin: 6px 0 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 1rem; }
+    .btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; font-size: 0.95rem; color: #fff; }
+    .btn-primary { background: #0284c7; width: 100%; }
+    .btn-wa { background: #16a34a; }
+    .btn-print { background: #475569; }
+    .btn-deliver { background: #2563eb; }
+    .checks { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+    .checks label { background: #0f172a; padding: 6px 10px; border-radius: 6px; font-size: 0.9rem; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .checks input { width: auto; margin: 0; }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+    .stat-card { background: #0f172a; padding: 12px; border-radius: 8px; }
+    .stat-card strong { display: block; font-size: 1.2rem; color: #38bdf8; }
+    .ticket-card { background: #1e293b; padding: 14px; border-radius: 10px; margin-bottom: 12px; border-right: 4px solid #38bdf8; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    #printArea { display: none; }
+    @media print {
+      body * { visibility: hidden; }
+      #printArea, #printArea * { visibility: visible; }
+      #printArea { display: block; position: absolute; left: 0; top: 0; width: 72mm; color: #000; background: #fff; font-family: monospace; padding: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="loginView" class="box" style="max-width:400px; margin: 40px auto;">
+      <h2>دخول الاستقبال / الإدارة</h2>
+      <input type="text" id="username" placeholder="اسم المستخدم (Username)">
+      <input type="password" id="password" placeholder="كلمة المرور">
+      <button class="btn btn-primary" onclick="handleLogin()">دخول</button>
+      <p id="loginErr" style="color:#f87171; font-size:0.9rem;"></p>
+    </div>
+
+    <div id="mainView" style="display:none;">
+      <div class="topbar">
+        <span id="welcomeUser" style="font-weight:bold; color:#38bdf8;"></span>
+        <button class="btn btn-print" onclick="auth.signOut()">خروج</button>
+      </div>
+
+      <div id="adminPanel" class="box" style="display:none;">
+        <h3>ملخص الحسابات (الأجهزة المسلمة)</h3>
+        <div class="stats">
+          <div class="stat-card"><span>إجمالي الإيراد</span><strong id="totRev">0</strong></div>
+          <div class="stat-card"><span>قطع الغيار</span><strong id="totParts" style="color:#f87171;">0</strong></div>
+          <div class="stat-card"><span>صافي الربح</span><strong id="totNet" style="color:#4ade80;">0</strong></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <h3>استلام جهاز جديد</h3>
+        <input type="text" id="cName" placeholder="اسم العميل">
+        <input type="tel" id="cPhone" placeholder="رقم الموبايل (مثال: 010xxxxxxxx)">
+        <input type="text" id="dType" placeholder="نوع الجهاز والموديل (مثال: PS4 Slim / لابتوب Dell)">
+        <input type="text" id="dSerial" placeholder="السيريال نمبر (اختياري)">
+        <textarea id="dIssue" rows="2" placeholder="وصف العطل"></textarea>
+
+        <label style="font-size:0.9rem; color:#94a3b8;">الملحقات المستلمة مع الجهاز:</label>
+        <div class="checks">
+          <label><input type="checkbox" value="شاحن/كابل باور"> شاحن/باور</label>
+          <label><input type="checkbox" value="شنطة"> شنطة</label>
+          <label><input type="checkbox" value="دراع تحكم"> دراع</label>
+          <label><input type="checkbox" value="كابل HDMI"> كابل HDMI</label>
+          <label><input type="checkbox" value="بدون ملحقات"> بدون ملحقات</label>
+        </div>
+
+        <label style="font-size:0.9rem; color:#94a3b8;">المهندس المسؤول:</label>
+        <select id="techSelect">
+          <option value="ahmedshaheen@shop.local|أحمد شاهين">أحمد شاهين</option>
+          <option value="amrataallah@shop.local|عمرو عطاالله">عمرو عطاالله</option>
+          <option value="beytibee@shop.local|يوسف أيمن">يوسف أيمن (صيانة سريعة)</option>
+        </select>
+
+        <input type="number" id="estCost" placeholder="التكلفة المبدئية (اختياري)">
+        <button class="btn btn-primary" onclick="addTicket()">حفظ وتسجيل الجهاز</button>
+      </div>
+
+      <div class="box">
+        <h3>متابعة الأجهزة</h3>
+        <select id="filterTech" onchange="loadTickets()">
+          <option value="all">عرض الكل</option>
+          <option value="ahmedshaheen@shop.local">أحمد شاهين</option>
+          <option value="amrataallah@shop.local">عمرو عطاالله</option>
+          <option value="beytibee@shop.local">يوسف أيمن</option>
+        </select>
+        <div id="ticketsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="printArea"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <script>
+    let currentUserRole = '';
+    const statusText = {
+      'new': 'تم الاستلام', 'working': 'جاري الصيانة', 'parts': 'انتظار قطع غيار',
+      'done': 'جاهز للاستلام', 'delivered': 'تم التسليم', 'rejected': 'مرفوض'
+    };
+
+    function handleLogin() {
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('password').value;
+      loginWithUsername(u, p).catch(err => {
+        document.getElementById('loginErr').innerText = "خطأ في الاسم أو كلمة المرور";
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        const entry = Object.values(USERS_MAP).find(x => x.email === user.email);
+        if (!entry || (entry.role !== 'reception' && entry.role !== 'admin')) {
+          alert("هذا الحساب مخصص لمهندسي الصيانة فقط. استخدم صفحة المهندسين.");
+          auth.signOut();
+          return;
+        }
+        currentUserRole = entry.role;
+        document.getElementById('loginView').style.display = 'none';
+        document.getElementById('mainView').style.display = 'block';
+        document.getElementById('welcomeUser').innerText = "مرحباً: " + entry.name;
+        if (entry.role === 'admin') {
+          document.getElementById('adminPanel').style.display = 'block';
+        }
+        loadTickets();
+      } else {
+        document.getElementById('loginView').style.display = 'block';
+        document.getElementById('mainView').style.display = 'none';
+      }
+    });
+
+    function addTicket() {
+      const cName = document.getElementById('cName').value.trim();
+      const cPhone = document.getElementById('cPhone').value.trim();
+      const dType = document.getElementById('dType').value.trim();
+      const dSerial = document.getElementById('dSerial').value.trim();
+      const dIssue = document.getElementById('dIssue').value.trim();
+      const estCost = Number(document.getElementById('estCost').value) || 0;
+      const [techEmail, techName] = document.getElementById('techSelect').value.split('|');
+
+      if (!cName || !cPhone || !dType || !dIssue) {
+        alert("من فضلك أكمل البيانات الأساسية (الاسم، الموبايل، الجهاز، العطل)");
+        return;
+      }
+
+      const accs = Array.from(document.querySelectorAll('.checks input:checked')).map(c => c.value).join(' - ');
+      const ticketId = "FIX-" + Math.floor(1000 + Math.random() * 9000);
+
+      db.collection('tickets').add({
+        ticketId, customerName: cName, phone: cPhone, deviceType: dType,
+        serial: dSerial, issue: dIssue, accessories: accs || 'لا يوجد',
+        techEmail, techName, status: 'new',
+        finalCost: estCost, partsCost: 0, publicNotes: '',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      }).then(() => {
+        alert("تم تسجيل الجهاز بنجاح! كود المتابعة: " + ticketId);
+        document.getElementById('cName').value = '';
+        document.getElementById('cPhone').value = '';
+        document.getElementById('dType').value = '';
+        document.getElementById('dSerial').value = '';
+        document.getElementById('dIssue').value = '';
+        document.getElementById('estCost').value = '';
+      });
+    }
+
+    function loadTickets() {
+      const filter = document.getElementById('filterTech').value;
+      db.collection('tickets').orderBy('createdAt', 'desc').onSnapshot(snap => {
+        const list = document.getElementById('ticketsList');
+        list.innerHTML = '';
+        let rev = 0, parts = 0;
+
+        snap.forEach(doc => {
+          const d = doc.data();
+          if (d.status === 'delivered') {
+            rev += Number(d.finalCost || 0);
+            parts += Number(d.partsCost || 0);
+          }
+          if (filter !== 'all' && d.techEmail !== filter) return;
+
+          const siteUrl = window.location.href.replace('reception.html', 'index.html') + '?q=' + d.ticketId;
+          const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nتم استلام جهازك (${d.deviceType}) للصيانة.\nكود المتابعة: ${d.ticketId}\nتابع حالة جهازك لحظة بلحظة من هنا:\n${siteUrl}`);
+          const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
+
+          list.innerHTML += `
+            <div class="ticket-card">
+              <div style="display:flex; justify-content:space-between;">
+                <strong>${d.ticketId} - ${d.customerName}</strong>
+                <span style="color:#38bdf8;">${statusText[d.status]}</span>
+              </div>
+              <div style="font-size:0.9rem; color:#cbd5e1; margin:6px 0;">
+                الجهاز: ${d.deviceType} | العطل: ${d.issue}<br>
+                المهندس: ${d.techName} | التكلفة: ${d.finalCost} ج.م
+              </div>
+              <div class="actions">
+                <a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-wa" style="text-decoration:none;">واتساب</a>
+                <button class="btn btn-print" onclick='printReceipt(${JSON.stringify(d)})'>طباعة إيصال</button>
+                ${d.status !== 'delivered' ? `<button class="btn btn-deliver" onclick="markDelivered('${doc.id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
+                ${d.techEmail === 'beytibee@shop.local' && d.status !== 'delivered' ? `<button class="btn btn-primary" style="width:auto;" onclick="quickFinish('${doc.id}')">إنهاء صيانة يوسف</button>` : ''}
+              </div>
+            </div>
+          `;
+        });
+
+        document.getElementById('totRev').innerText = rev + ' ج.م';
+        document.getElementById('totParts').innerText = parts + ' ج.م';
+        document.getElementById('totNet').innerText = (rev - parts) + ' ج.م';
+      });
+    }
+
+    function markDelivered(docId, currentCost) {
+      const finalAmt = prompt("أكد المبلغ المحصل من العميل (ج.م):", currentCost);
+      if (finalAmt !== null) {
+        db.collection('tickets').doc(docId).update({
+          status: 'delivered',
+          finalCost: Number(finalAmt)
+        });
+      }
+    }
+
+    function quickFinish(docId) {
+      const cost = prompt("اكتب تكلفة الصيانة النهائية:");
+      const note = prompt("ملاحظة للعميل (اختياري):") || "تم الإصلاح بنجاح";
+      if (cost !== null) {
+        db.collection('tickets').doc(docId).update({
+          status: 'done',
+          finalCost: Number(cost),
+          publicNotes: note
+        });
+      }
+    }
+
+    function printReceipt(d) {
+      const p = document.getElementById('printArea');
+      p.innerHTML = `
+        <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:6px;">
+          <h3 style="margin:0;">إيصال استلام صيانة</h3>
+          <p style="margin:4px 0;">كود: <strong>${d.ticketId}</strong></p>
+        </div>
+        <p>العميل: ${d.customerName}</p>
+        <p>الموبايل: ${d.phone}</p>
+        <p>الجهاز: ${d.deviceType}</p>
+        <p>العطل: ${d.issue}</p>
+        <p>الملحقات: ${d.accessories}</p>
+        <p>التكلفة المبدئية: ${d.finalCost || 'بعد الفحص'}</p>
+        <hr>
+        <p style="font-size:11px; text-align:center;">يرجى الاحتفاظ بالإيصال عند الاستلام</p>
+      `;
+      window.print();
+    }
+  </script>
+</body>
+</html>

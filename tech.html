@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>بوابة مهندسي الصيانة</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 16px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    .box { background: #1e293b; padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+    h2, h3 { margin-top: 0; color: #38bdf8; }
+    input, select, textarea { width: 100%; padding: 10px; margin: 6px 0 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 1rem; }
+    .btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; font-size: 0.95rem; color: #fff; width: 100%; }
+    .btn-save { background: #16a34a; }
+    .btn-out { background: #475569; width: auto; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .card { background: #1e293b; padding: 16px; border-radius: 12px; margin-bottom: 14px; border-right: 5px solid #f59e0b; }
+    .meta { font-size: 0.9rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="loginView" class="box" style="max-width:400px; margin: 40px auto;">
+      <h2>دخول مهندسي الصيانة</h2>
+      <input type="text" id="username" placeholder="اسم المستخدم (Username)">
+      <input type="password" id="password" placeholder="كلمة المرور">
+      <button class="btn" style="background:#0284c7;" onclick="handleLogin()">دخول</button>
+      <p id="loginErr" style="color:#f87171; font-size:0.9rem;"></p>
+    </div>
+
+    <div id="workView" style="display:none;">
+      <div class="topbar">
+        <span id="techTitle" style="font-weight:bold; color:#38bdf8;"></span>
+        <button class="btn btn-out" onclick="auth.signOut()">خروج</button>
+      </div>
+      <div id="myTickets"></div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+
+  <script>
+    function handleLogin() {
+      const u = document.getElementById('username').value;
+      const p = document.getElementById('password').value;
+      loginWithUsername(u, p).catch(() => {
+        document.getElementById('loginErr').innerText = "بيانات الدخول غير صحيحة";
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        const entry = Object.values(USERS_MAP).find(x => x.email === user.email);
+        document.getElementById('loginView').style.display = 'none';
+        document.getElementById('workView').style.display = 'block';
+        document.getElementById('techTitle').innerText = "مهام المهندس: " + (entry ? entry.name : user.email);
+        loadMyWork(user.email);
+      } else {
+        document.getElementById('loginView').style.display = 'block';
+        document.getElementById('workView').style.display = 'none';
+      }
+    });
+
+    function loadMyWork(email) {
+      db.collection('tickets')
+        .where('techEmail', '==', email)
+        .onSnapshot(snap => {
+          const container = document.getElementById('myTickets');
+          container.innerHTML = '';
+          let count = 0;
+
+          snap.forEach(doc => {
+            const d = doc.data();
+            if (d.status === 'delivered') return;
+            count++;
+
+            container.innerHTML += `
+              <div class="card">
+                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                  <strong style="font-size:1.1rem; color:#fff;">${d.deviceType}</strong>
+                  <span style="color:#38bdf8; font-weight:bold;">${d.ticketId}</span>
+                </div>
+                <div class="meta">
+                  <strong>العميل:</strong> ${d.customerName} (${d.phone})<br>
+                  <strong>العطل:</strong> ${d.issue}<br>
+                  <strong>الملحقات:</strong> ${d.accessories}
+                </div>
+
+                <label style="font-size:0.85rem; color:#cbd5e1;">حالة الصيانة:</label>
+                <select id="st_${doc.id}">
+                  <option value="new" ${d.status==='new'?'selected':''}>تم الاستلام</option>
+                  <option value="working" ${d.status==='working'?'selected':''}>جاري الفحص والصيانة</option>
+                  <option value="parts" ${d.status==='parts'?'selected':''}>في انتظار قطع غيار</option>
+                  <option value="done" ${d.status==='done'?'selected':''}>تم الإصلاح - جاهز للاستلام</option>
+                  <option value="rejected" ${d.status==='rejected'?'selected':''}>لا يمكن الإصلاح / مرفوض</option>
+                </select>
+
+                <div style="display:flex; gap:8px;">
+                  <div style="flex:1;">
+                    <label style="font-size:0.85rem; color:#cbd5e1;">سعر الصيانة للزبون:</label>
+                    <input type="number" id="fc_${doc.id}" value="${d.finalCost || 0}">
+                  </div>
+                  <div style="flex:1;">
+                    <label style="font-size:0.85rem; color:#cbd5e1;">تكلفة قطع الغيار:</label>
+                    <input type="number" id="pc_${doc.id}" value="${d.partsCost || 0}">
+                  </div>
+                </div>
+
+                <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
+                <textarea id="nt_${doc.id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
+
+                <button class="btn btn-save" onclick="updateTicket('${doc.id}')">حفظ وتحديث الحالة</button>
+              </div>
+            `;
+          });
+
+          if (count === 0) {
+            container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة معلقة حالياً.</p></div>';
+          }
+        });
+    }
+
+    function updateTicket(docId) {
+      const status = document.getElementById('st_' + docId).value;
+      const finalCost = Number(document.getElementById('fc_' + docId).value) || 0;
+      const partsCost = Number(document.getElementById('pc_' + docId).value) || 0;
+      const publicNotes = document.getElementById('nt_' + docId).value.trim();
+
+      db.collection('tickets').doc(docId).update({
+        status, finalCost, partsCost, publicNotes
+      }).then(() => {
+        alert("تم تحديث حالة الجهاز بنجاح!");
+      });
+    }
+  </script>
+</body>
+</html>
