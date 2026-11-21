@@ -81,6 +81,7 @@
         <button class="chip" onclick="setTechFilter('parts', this)">انتظار قطع غيار</button>
         <button class="chip" onclick="setTechFilter('done', this)">جاهز للتسليم</button>
         <button class="chip" onclick="setTechFilter('rejected', this)">مرفوض</button>
+        <button class="chip" onclick="setTechFilter('overdue', this)">متأخر +7 أيام</button>
       </div>
 
       <div id="myTickets"></div>
@@ -167,7 +168,7 @@
           serial: '', issue: dIssue, accessories: accs || 'لا يوجد',
           photoBase64: photoBase64 || '',
           techEmail: currentEmail, techName, status: 'new',
-          finalCost: 0, partsCost: 0, publicNotes: '', internalNotes,
+          finalCost: 0, partsCost: 0, publicNotes: '', internalNotes, techPrivateNotes: '',
           reminderDisabled: false,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           readyAt: null,
@@ -227,12 +228,18 @@
       let count = 0;
 
       latestTechDocs.forEach(({ id, data: d }) => {
-        if (currentTechFilter !== 'all' && d.status !== currentTechFilter) return;
+        const cycle = getReminderCycle(d.createdAt);
+        const isOverdue = !d.reminderDisabled && cycle >= 1;
+
+        if (currentTechFilter === 'overdue') {
+          if (!isOverdue) return;
+        } else if (currentTechFilter !== 'all' && d.status !== currentTechFilter) {
+          return;
+        }
         if (!matchesTechSearch(d, searchVal)) return;
         count++;
 
-        const cycle = getReminderCycle(d.createdAt);
-        const showReminder = (!d.reminderDisabled && cycle >= 1 && (
+        const showReminder = (isOverdue && (
           (currentEmail === 'amrataallah@shop.local' && d.techEmail === 'amrataallah@shop.local') ||
           (currentEmail === 'ahmedshaheen@shop.local' && (d.techEmail === 'ahmedshaheen@shop.local' || d.techEmail === 'beytibee@shop.local'))
         ));
@@ -295,6 +302,9 @@
             <label style="font-size:0.85rem; color:#fbbf24;">ملاحظات داخلية للمهندسين فقط (لا تظهر للزبون):</label>
             <textarea id="in_${id}" rows="2" placeholder="ملاحظة فنية أو مكان قطعة غيار...">${d.internalNotes || ''}</textarea>
 
+            <label style="font-size:0.85rem; color:#38bdf8;">سجل ما تم عمله في الجهاز (يظهر لك وللأدمن فقط):</label>
+            <textarea id="tp_${id}" rows="2" placeholder="اكتب تفاصيل ما تم إصلاحه أو تغييره للرجوع إليه لو عاد الجهاز...">${d.techPrivateNotes || ''}</textarea>
+
             <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
               <button class="btn btn-save" style="flex:1;" onclick="updateTicket('${id}')">حفظ وتحديث الحالة</button>
               <a href="tel:${d.phone}" class="btn btn-sm btn-call">اتصال</a>
@@ -316,8 +326,9 @@
       const partsCost = Number(document.getElementById('pc_' + docId).value) || 0;
       const publicNotes = document.getElementById('nt_' + docId).value.trim();
       const internalNotes = document.getElementById('in_' + docId).value.trim();
+      const techPrivateNotes = document.getElementById('tp_' + docId).value.trim();
 
-      const updateObj = { status, finalCost, partsCost, publicNotes, internalNotes };
+      const updateObj = { status, finalCost, partsCost, publicNotes, internalNotes, techPrivateNotes };
       if (status === 'done') {
         updateObj.readyAt = firebase.firestore.FieldValue.serverTimestamp();
       }

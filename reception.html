@@ -18,6 +18,7 @@
     .btn-print { background: #475569; }
     .btn-sticker { background: #7c3aed; }
     .btn-deliver { background: #2563eb; }
+    .btn-reopen { background: #d97706; }
     .btn-warn { background: #b45309; }
     .btn-ok { background: #15803d; }
     .btn-call { background: #0d9488; text-decoration: none; display: inline-block; }
@@ -32,6 +33,7 @@
     .chip.active { background: #0284c7; border-color: #0284c7; color: #fff; }
     .ticket-card { background: #1e293b; padding: 14px; border-radius: 10px; margin-bottom: 12px; border-right: 4px solid #38bdf8; }
     .internal-note { background: #0f172a; border-right: 3px solid #f59e0b; padding: 8px 10px; border-radius: 6px; margin-top: 8px; font-size: 0.85rem; color: #fde68a; }
+    .tech-private-note { background: #0f172a; border-right: 3px solid #38bdf8; padding: 8px 10px; border-radius: 6px; margin-top: 8px; font-size: 0.85rem; color: #bae6fd; }
     .timeline-mini { font-size: 0.8rem; color: #94a3b8; margin-top: 6px; line-height: 1.6; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -70,6 +72,7 @@
           <div class="stat-card"><span>قطع الغيار</span><strong id="totParts" style="color:#f87171;">0</strong></div>
           <div class="stat-card"><span>صافي الربح</span><strong id="totNet" style="color:#4ade80;">0</strong></div>
         </div>
+        <button class="btn btn-sm btn-ok" style="margin-top:12px;" onclick="exportBackupCSV()">تصدير نسخة احتياطية (CSV)</button>
       </div>
 
       <div id="addFormBox" class="box">
@@ -123,6 +126,7 @@
           <button class="chip" onclick="setStatusFilter('done', this)">جاهز للتسليم</button>
           <button class="chip" onclick="setStatusFilter('delivered', this)">تم التسليم</button>
           <button class="chip" onclick="setStatusFilter('rejected', this)">مرفوض</button>
+          <button class="chip" onclick="setStatusFilter('overdue', this)">متأخر +7 أيام</button>
         </div>
 
         <div id="ticketsList"></div>
@@ -213,7 +217,7 @@
           serial: dSerial, issue: dIssue, accessories: accs || 'لا يوجد',
           photoBase64: photoBase64 || '',
           techEmail, techName, status: 'new',
-          finalCost: estCost, partsCost: 0, publicNotes: '', internalNotes,
+          finalCost: estCost, partsCost: 0, publicNotes: '', internalNotes, techPrivateNotes: '',
           reminderDisabled: false,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           readyAt: null,
@@ -254,6 +258,10 @@
       });
     }
 
+    function isOverdueTicket(d) {
+      return d.status !== 'delivered' && !d.reminderDisabled && getReminderCycle(d.createdAt) >= 1;
+    }
+
     function matchesSearch(d, query) {
       if (!query) return true;
       const q = query.trim().toLowerCase();
@@ -274,16 +282,26 @@
 
       latestDocs.forEach(({ id, data: d }) => {
         if (techFilter !== 'all' && d.techEmail !== techFilter) return;
-        if (currentStatusFilter !== 'all' && d.status !== currentStatusFilter) return;
+        if (currentStatusFilter === 'overdue') {
+          if (!isOverdueTicket(d)) return;
+        } else if (currentStatusFilter !== 'all' && d.status !== currentStatusFilter) {
+          return;
+        }
         if (!matchesSearch(d, searchVal)) return;
 
         const reminderBtn = currentUserRole === 'admin' && d.status !== 'delivered'
           ? `<button class="btn btn-sm ${d.reminderDisabled ? 'btn-ok' : 'btn-warn'}" onclick="toggleReminder('${id}', ${!d.reminderDisabled})">${d.reminderDisabled ? 'تفعيل التذكير' : 'إلغاء التذكير'}</button>`
           : '';
 
+        const reopenBtn = d.status === 'delivered'
+          ? `<button class="btn btn-sm btn-reopen" onclick="reopenTicket('${id}')">إعادة فتح</button>`
+          : '';
+
         const createdStr = formatDateTime(d.createdAt);
         const readyStr = formatDateTime(d.readyAt);
         const deliveredStr = formatDateTime(d.deliveredAt);
+
+        const showTechPrivate = currentUserRole === 'admin' && d.techPrivateNotes;
 
         list.innerHTML += `
           <div class="ticket-card">
@@ -298,6 +316,7 @@
               ${d.reminderDisabled ? '<br><span style="color:#fbbf24;">تم إلغاء تذكير الاتصال لهذا العميل</span>' : ''}
             </div>
             ${d.internalNotes ? `<div class="internal-note"><strong>ملاحظة داخلية:</strong> ${d.internalNotes}</div>` : ''}
+            ${showTechPrivate ? `<div class="tech-private-note"><strong>سجل فني خاص (${d.techName}):</strong> ${d.techPrivateNotes}</div>` : ''}
             <div class="timeline-mini">
               ${createdStr ? `استلام: ${createdStr}` : ''}
               ${readyStr ? ` | جاهز: ${readyStr}` : ''}
@@ -309,12 +328,22 @@
               <button class="btn btn-sm btn-print" onclick='printCustomerReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.finalCost)})'>طباعة ريسيت</button>
               <button class="btn btn-sm btn-sticker" onclick='printDeviceSticker(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.techName)})'>طباعة استيكر</button>
               ${d.status !== 'delivered' ? `<button class="btn btn-sm btn-deliver" onclick="markDelivered('${id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
+              ${reopenBtn}
               ${d.techEmail === 'beytibee@shop.local' && d.status !== 'delivered' ? `<button class="btn btn-sm" style="background:#0284c7;" onclick="quickFinish('${id}')">إنهاء صيانة يوسف</button>` : ''}
               ${reminderBtn}
             </div>
           </div>
         `;
       });
+    }
+
+    function reopenTicket(docId) {
+      if (confirm("هل تريد إعادة فتح هذا الجهاز وإرجاعه لحالة جاري الصيانة؟")) {
+        db.collection('tickets').doc(docId).update({
+          status: 'working',
+          deliveredAt: null
+        });
+      }
     }
 
     function toggleReminder(docId, disableState) {
@@ -343,6 +372,40 @@
           readyAt: firebase.firestore.FieldValue.serverTimestamp()
         });
       }
+    }
+
+    function exportBackupCSV() {
+      if (!latestDocs.length) {
+        alert("لا توجد بيانات لتصديرها");
+        return;
+      }
+      const headers = ["كود المتابعة", "العميل", "الموبايل", "الجهاز", "العطل", "المهندس", "الحالة", "التكلفة", "قطع الغيار", "تقرير العميل", "ملاحظة داخلية", "سجل فني خاص"];
+      const rows = latestDocs.map(({ data: d }) => [
+        d.ticketId || "",
+        d.customerName || "",
+        d.phone || "",
+        d.deviceType || "",
+        d.issue || "",
+        d.techName || "",
+        statusText[d.status] || d.status || "",
+        d.finalCost || 0,
+        d.partsCost || 0,
+        d.publicNotes || "",
+        d.internalNotes || "",
+        d.techPrivateNotes || ""
+      ]);
+
+      const csvContent = "\uFEFF" + [headers, ...rows]
+        .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+        .join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "fix-system-backup.csv";
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     function printCustomerReceipt(ticketId, customerName, phone, deviceType, issue, accessories, finalCost) {
