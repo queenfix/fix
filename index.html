@@ -38,7 +38,7 @@
     </div>
 
     <div class="search-box">
-      <input type="text" id="searchInput" placeholder="اكتب رقم الموبايل أو الكود...">
+      <input type="text" id="searchInput" placeholder="اكتب رقم الموبايل أو الكود (مثلاً FIX-1234 أو 1234)...">
       <button onclick="searchTicket()">بحث</button>
     </div>
 
@@ -69,17 +69,30 @@
       }
     };
 
+    function normalizeTicketCode(rawVal) {
+      const upper = rawVal.trim().toUpperCase();
+      if (/^\d{3,6}$/.test(upper)) {
+        return "FIX-" + upper;
+      }
+      if (/^FIX\d{3,6}$/.test(upper)) {
+        return upper.replace(/^FIX/, "FIX-");
+      }
+      return upper;
+    }
+
     function searchTicket() {
       const val = document.getElementById('searchInput').value.trim();
       const resultsDiv = document.getElementById('results');
       if (!val) return;
       resultsDiv.innerHTML = '<p style="text-align:center; color:#94a3b8;">جاري البحث...</p>';
 
+      const normalizedCode = normalizeTicketCode(val);
+
       db.collection('tickets').where('phone', '==', val).onSnapshot(snap => {
         if (!snap.empty) {
           renderCards(snap);
         } else {
-          db.collection('tickets').where('ticketId', '==', val.toUpperCase()).onSnapshot(snap2 => {
+          db.collection('tickets').where('ticketId', '==', normalizedCode).onSnapshot(snap2 => {
             if (!snap2.empty) {
               renderCards(snap2);
             } else {
