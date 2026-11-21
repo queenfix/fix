@@ -11,10 +11,12 @@
     h2, h3 { margin-top: 0; color: #38bdf8; }
     input, select, textarea { width: 100%; padding: 10px; margin: 6px 0 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 1rem; }
     .btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; font-size: 0.95rem; color: #fff; }
+    .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; }
     .btn-primary { background: #0284c7; width: 100%; }
-    .btn-wa { background: #16a34a; }
     .btn-print { background: #475569; }
     .btn-deliver { background: #2563eb; }
+    .btn-warn { background: #b45309; }
+    .btn-ok { background: #15803d; }
     .checks { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
     .checks label { background: #0f172a; padding: 6px 10px; border-radius: 6px; font-size: 0.9rem; display: flex; align-items: center; gap: 6px; cursor: pointer; }
     .checks input { width: auto; margin: 0; }
@@ -23,7 +25,8 @@
     .stat-card strong { display: block; font-size: 1.2rem; color: #38bdf8; }
     .ticket-card { background: #1e293b; padding: 14px; border-radius: 10px; margin-bottom: 12px; border-right: 4px solid #38bdf8; }
     .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .thumb { width: 70px; height: 70px; object-fit: cover; border-radius: 8px; margin-top: 6px; border: 1px solid #334155; }
     #printArea { display: none; }
     @media print {
       body * { visibility: hidden; }
@@ -45,7 +48,10 @@
     <div id="mainView" style="display:none;">
       <div class="topbar">
         <span id="welcomeUser" style="font-weight:bold; color:#38bdf8;"></span>
-        <button class="btn btn-print" onclick="auth.signOut()">خروج</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" style="background:#0284c7;" onclick="scrollToForm()">+ إضافة جهاز</button>
+          <button class="btn btn-sm btn-print" onclick="auth.signOut()">خروج</button>
+        </div>
       </div>
 
       <div id="adminPanel" class="box" style="display:none;">
@@ -57,7 +63,7 @@
         </div>
       </div>
 
-      <div class="box">
+      <div id="addFormBox" class="box">
         <h3>استلام جهاز جديد</h3>
         <input type="text" id="cName" placeholder="اسم العميل">
         <input type="tel" id="cPhone" placeholder="رقم الموبايل (مثال: 010xxxxxxxx)">
@@ -67,12 +73,16 @@
 
         <label style="font-size:0.9rem; color:#94a3b8;">الملحقات المستلمة مع الجهاز:</label>
         <div class="checks">
+          <label><input type="checkbox" value="بطارية"> بطارية</label>
           <label><input type="checkbox" value="شاحن/كابل باور"> شاحن/باور</label>
           <label><input type="checkbox" value="شنطة"> شنطة</label>
           <label><input type="checkbox" value="دراع تحكم"> دراع</label>
           <label><input type="checkbox" value="كابل HDMI"> كابل HDMI</label>
           <label><input type="checkbox" value="بدون ملحقات"> بدون ملحقات</label>
         </div>
+
+        <label style="font-size:0.9rem; color:#94a3b8;">تصوير الجهاز (اختياري):</label>
+        <input type="file" id="dPhoto" accept="image/*" capture="environment">
 
         <label style="font-size:0.9rem; color:#94a3b8;">المهندس المسؤول:</label>
         <select id="techSelect">
@@ -112,10 +122,14 @@
       'done': 'جاهز للاستلام', 'delivered': 'تم التسليم', 'rejected': 'مرفوض'
     };
 
+    function scrollToForm() {
+      document.getElementById('addFormBox').scrollIntoView({ behavior: 'smooth' });
+    }
+
     function handleLogin() {
       const u = document.getElementById('username').value;
       const p = document.getElementById('password').value;
-      loginWithUsername(u, p).catch(err => {
+      loginWithUsername(u, p).catch(() => {
         document.getElementById('loginErr').innerText = "خطأ في الاسم أو كلمة المرور";
       });
     }
@@ -150,29 +164,36 @@
       const dIssue = document.getElementById('dIssue').value.trim();
       const estCost = Number(document.getElementById('estCost').value) || 0;
       const [techEmail, techName] = document.getElementById('techSelect').value.split('|');
+      const photoFile = document.getElementById('dPhoto').files[0];
 
       if (!cName || !cPhone || !dType || !dIssue) {
         alert("من فضلك أكمل البيانات الأساسية (الاسم، الموبايل، الجهاز، العطل)");
         return;
       }
 
-      const accs = Array.from(document.querySelectorAll('.checks input:checked')).map(c => c.value).join(' - ');
-      const ticketId = "FIX-" + Math.floor(1000 + Math.random() * 9000);
+      readImageAsCompressedBase64(photoFile, (photoBase64) => {
+        const accs = Array.from(document.querySelectorAll('.checks input:checked')).map(c => c.value).join(' - ');
+        const ticketId = "FIX-" + Math.floor(1000 + Math.random() * 9000);
 
-      db.collection('tickets').add({
-        ticketId, customerName: cName, phone: cPhone, deviceType: dType,
-        serial: dSerial, issue: dIssue, accessories: accs || 'لا يوجد',
-        techEmail, techName, status: 'new',
-        finalCost: estCost, partsCost: 0, publicNotes: '',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).then(() => {
-        alert("تم تسجيل الجهاز بنجاح! كود المتابعة: " + ticketId);
-        document.getElementById('cName').value = '';
-        document.getElementById('cPhone').value = '';
-        document.getElementById('dType').value = '';
-        document.getElementById('dSerial').value = '';
-        document.getElementById('dIssue').value = '';
-        document.getElementById('estCost').value = '';
+        db.collection('tickets').add({
+          ticketId, customerName: cName, phone: cPhone, deviceType: dType,
+          serial: dSerial, issue: dIssue, accessories: accs || 'لا يوجد',
+          photoBase64: photoBase64 || '',
+          techEmail, techName, status: 'new',
+          finalCost: estCost, partsCost: 0, publicNotes: '',
+          reminderDisabled: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).then(() => {
+          alert("تم تسجيل الجهاز بنجاح! كود المتابعة: " + ticketId);
+          document.getElementById('cName').value = '';
+          document.getElementById('cPhone').value = '';
+          document.getElementById('dType').value = '';
+          document.getElementById('dSerial').value = '';
+          document.getElementById('dIssue').value = '';
+          document.getElementById('estCost').value = '';
+          document.getElementById('dPhoto').value = '';
+          document.querySelectorAll('.checks input:checked').forEach(c => c.checked = false);
+        });
       });
     }
 
@@ -191,9 +212,9 @@
           }
           if (filter !== 'all' && d.techEmail !== filter) return;
 
-          const siteUrl = window.location.href.replace('reception.html', 'index.html') + '?q=' + d.ticketId;
-          const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nتم استلام جهازك (${d.deviceType}) للصيانة.\nكود المتابعة: ${d.ticketId}\nتابع حالة جهازك لحظة بلحظة من هنا:\n${siteUrl}`);
-          const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
+          const reminderBtn = currentUserRole === 'admin' && d.status !== 'delivered'
+            ? `<button class="btn btn-sm ${d.reminderDisabled ? 'btn-ok' : 'btn-warn'}" onclick="toggleReminder('${doc.id}', ${!d.reminderDisabled})">${d.reminderDisabled ? 'تفعيل التذكير' : 'إلغاء التذكير'}</button>`
+            : '';
 
           list.innerHTML += `
             <div class="ticket-card">
@@ -204,12 +225,14 @@
               <div style="font-size:0.9rem; color:#cbd5e1; margin:6px 0;">
                 الجهاز: ${d.deviceType} | العطل: ${d.issue}<br>
                 المهندس: ${d.techName} | التكلفة: ${d.finalCost} ج.م
+                ${d.reminderDisabled ? '<br><span style="color:#fbbf24;">تم إلغاء تذكير الاتصال لهذا العميل</span>' : ''}
               </div>
+              ${d.photoBase64 ? `<img src="${d.photoBase64}" class="thumb" alt="صورة الجهاز">` : ''}
               <div class="actions">
-                <a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-wa" style="text-decoration:none;">واتساب</a>
-                <button class="btn btn-print" onclick='printReceipt(${JSON.stringify(d)})'>طباعة إيصال</button>
-                ${d.status !== 'delivered' ? `<button class="btn btn-deliver" onclick="markDelivered('${doc.id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
-                ${d.techEmail === 'beytibee@shop.local' && d.status !== 'delivered' ? `<button class="btn btn-primary" style="width:auto;" onclick="quickFinish('${doc.id}')">إنهاء صيانة يوسف</button>` : ''}
+                <button class="btn btn-sm btn-print" onclick='printReceipt(${JSON.stringify(d.ticketId)}, ${JSON.stringify(d.customerName)}, ${JSON.stringify(d.phone)}, ${JSON.stringify(d.deviceType)}, ${JSON.stringify(d.issue)}, ${JSON.stringify(d.accessories)}, ${JSON.stringify(d.finalCost)})'>طباعة إيصال</button>
+                ${d.status !== 'delivered' ? `<button class="btn btn-sm btn-deliver" onclick="markDelivered('${doc.id}', ${d.finalCost})">تسليم وتحصيل</button>` : ''}
+                ${d.techEmail === 'beytibee@shop.local' && d.status !== 'delivered' ? `<button class="btn btn-sm" style="background:#0284c7;" onclick="quickFinish('${doc.id}')">إنهاء صيانة يوسف</button>` : ''}
+                ${reminderBtn}
               </div>
             </div>
           `;
@@ -219,6 +242,10 @@
         document.getElementById('totParts').innerText = parts + ' ج.م';
         document.getElementById('totNet').innerText = (rev - parts) + ' ج.م';
       });
+    }
+
+    function toggleReminder(docId, disableState) {
+      db.collection('tickets').doc(docId).update({ reminderDisabled: disableState });
     }
 
     function markDelivered(docId, currentCost) {
@@ -243,19 +270,19 @@
       }
     }
 
-    function printReceipt(d) {
+    function printReceipt(ticketId, customerName, phone, deviceType, issue, accessories, finalCost) {
       const p = document.getElementById('printArea');
       p.innerHTML = `
         <div style="text-align:center; border-bottom:1px dashed #000; padding-bottom:6px;">
           <h3 style="margin:0;">إيصال استلام صيانة</h3>
-          <p style="margin:4px 0;">كود: <strong>${d.ticketId}</strong></p>
+          <p style="margin:4px 0;">كود: <strong>${ticketId}</strong></p>
         </div>
-        <p>العميل: ${d.customerName}</p>
-        <p>الموبايل: ${d.phone}</p>
-        <p>الجهاز: ${d.deviceType}</p>
-        <p>العطل: ${d.issue}</p>
-        <p>الملحقات: ${d.accessories}</p>
-        <p>التكلفة المبدئية: ${d.finalCost || 'بعد الفحص'}</p>
+        <p>العميل: ${customerName}</p>
+        <p>الموبايل: ${phone}</p>
+        <p>الجهاز: ${deviceType}</p>
+        <p>العطل: ${issue}</p>
+        <p>الملحقات: ${accessories}</p>
+        <p>التكلفة المبدئية: ${finalCost || 'بعد الفحص'}</p>
         <hr>
         <p style="font-size:11px; text-align:center;">يرجى الاحتفاظ بالإيصال عند الاستلام</p>
       `;

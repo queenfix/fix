@@ -12,7 +12,6 @@
     .search-box { background: #1e293b; padding: 16px; border-radius: 12px; display: flex; gap: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
     input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; font-size: 1rem; }
     button { padding: 12px 20px; border-radius: 8px; border: none; background: #0284c7; color: #fff; font-weight: bold; cursor: pointer; font-size: 1rem; }
-    button:hover { background: #0369a1; }
     .card { background: #1e293b; border-radius: 12px; padding: 16px; margin-top: 16px; border-right: 5px solid #38bdf8; }
     .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; margin-bottom: 10px; }
     .st-new { background: #334155; color: #e2e8f0; }
@@ -25,6 +24,8 @@
     .row:last-child { border-bottom: none; }
     .label { color: #94a3b8; }
     .notes { background: #0f172a; padding: 10px; border-radius: 8px; margin-top: 10px; font-size: 0.9rem; color: #cbd5e1; }
+    .device-img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 8px; margin-top: 10px; border: 1px solid #334155; }
+    .wa-btn { display: block; text-align: center; background: #16a34a; color: #fff; text-decoration: none; padding: 11px 14px; border-radius: 8px; font-weight: bold; margin-top: 12px; font-size: 0.95rem; }
   </style>
 </head>
 <body>
@@ -93,6 +94,10 @@
       snapshot.forEach(doc => {
         const d = doc.data();
         const st = statusLabels[d.status] || statusLabels['new'];
+        const techInfo = getCustomerTechInfo(d);
+        const waPhone = "2" + techInfo.phone.replace(/^0/, "");
+        const waText = encodeURIComponent(`مرحباً م/ ${techInfo.displayName}، أستفسر بخصوص الجهاز (${d.deviceType}) بكود المتابعة (${d.ticketId}).`);
+
         resultsDiv.innerHTML += `
           <div class="card">
             <span class="badge ${st.cls}">${st.text}</span>
@@ -100,9 +105,12 @@
             <div class="row"><span class="label">العميل:</span><span>${d.customerName}</span></div>
             <div class="row"><span class="label">الجهاز:</span><span>${d.deviceType}</span></div>
             <div class="row"><span class="label">العطل المسجل:</span><span>${d.issue}</span></div>
-            <div class="row"><span class="label">المهندس المسؤول:</span><span>${d.techName}</span></div>
+            <div class="row"><span class="label">المهندس المسؤول:</span><span>${techInfo.displayName}</span></div>
+            <div class="row"><span class="label">رقم المهندس:</span><span dir="ltr">${techInfo.phone}</span></div>
             <div class="row"><span class="label">التكلفة:</span><strong style="color:#38bdf8;">${d.finalCost ? d.finalCost + ' ج.م' : 'تحدد بعد الفحص'}</strong></div>
             ${d.publicNotes ? `<div class="notes"><strong>تقرير الصيانة:</strong> ${d.publicNotes}</div>` : ''}
+            ${d.photoBase64 ? `<img src="${d.photoBase64}" class="device-img" alt="صورة الجهاز">` : ''}
+            <a href="https://wa.me/${waPhone}?text=${waText}" target="_blank" class="wa-btn">مراسلة المهندس على واتساب</a>
           </div>
         `;
       });

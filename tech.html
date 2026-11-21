@@ -11,11 +11,18 @@
     h2, h3 { margin-top: 0; color: #38bdf8; }
     input, select, textarea { width: 100%; padding: 10px; margin: 6px 0 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #fff; box-sizing: border-box; font-size: 1rem; }
     .btn { padding: 10px 16px; border-radius: 8px; border: none; font-weight: bold; cursor: pointer; font-size: 0.95rem; color: #fff; width: 100%; }
+    .btn-sm { padding: 6px 12px; font-size: 0.85rem; border-radius: 6px; width: auto; }
     .btn-save { background: #16a34a; }
+    .btn-wa { background: #16a34a; text-decoration: none; display: inline-block; }
     .btn-out { background: #475569; width: auto; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
     .card { background: #1e293b; padding: 16px; border-radius: 12px; margin-bottom: 14px; border-right: 5px solid #f59e0b; }
     .meta { font-size: 0.9rem; color: #94a3b8; margin-bottom: 10px; line-height: 1.6; }
+    .reminder-box { background: #7c2d12; color: #ffedd5; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 0.9rem; border: 1px solid #fb923c; }
+    .checks { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .checks label { background: #0f172a; padding: 5px 9px; border-radius: 6px; font-size: 0.85rem; display: flex; align-items: center; gap: 5px; }
+    .checks input { width: auto; margin: 0; }
+    .thumb { width: 85px; height: 85px; object-fit: cover; border-radius: 8px; margin-bottom: 10px; border: 1px solid #334155; }
   </style>
 </head>
 <body>
@@ -31,8 +38,30 @@
     <div id="workView" style="display:none;">
       <div class="topbar">
         <span id="techTitle" style="font-weight:bold; color:#38bdf8;"></span>
-        <button class="btn btn-out" onclick="auth.signOut()">خروج</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-sm" style="background:#0284c7;" onclick="toggleQuickAdd()">+ إضافة جهاز</button>
+          <button class="btn btn-sm btn-out" onclick="auth.signOut()">خروج</button>
+        </div>
       </div>
+
+      <div id="quickAddBox" class="box" style="display:none;">
+        <h3>إضافة جهاز سريع</h3>
+        <input type="text" id="qName" placeholder="اسم العميل">
+        <input type="tel" id="qPhone" placeholder="رقم الموبايل">
+        <input type="text" id="qType" placeholder="نوع الجهاز">
+        <textarea id="qIssue" rows="2" placeholder="وصف العطل"></textarea>
+        <div class="checks">
+          <label><input type="checkbox" value="بطارية"> بطارية</label>
+          <label><input type="checkbox" value="شاحن/كابل باور"> شاحن/باور</label>
+          <label><input type="checkbox" value="شنطة"> شنطة</label>
+          <label><input type="checkbox" value="دراع تحكم"> دراع</label>
+          <label><input type="checkbox" value="كابل HDMI"> كابل HDMI</label>
+        </div>
+        <label style="font-size:0.85rem; color:#94a3b8;">تصوير الجهاز (اختياري):</label>
+        <input type="file" id="qPhoto" accept="image/*" capture="environment">
+        <button class="btn btn-save" onclick="addQuickTicket()">حفظ الجهاز</button>
+      </div>
+
       <div id="myTickets"></div>
     </div>
   </div>
@@ -43,16 +72,35 @@
   <script src="firebase-config.js"></script>
 
   <script>
+    let currentEmail = '';
+    let isFirstLoad = true;
+    const knownDocIds = new Set();
+
     function handleLogin() {
       const u = document.getElementById('username').value;
       const p = document.getElementById('password').value;
-      loginWithUsername(u, p).catch(() => {
+      loginWithUsername(u, p).then(() => {
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission();
+        }
+      }).catch(() => {
         document.getElementById('loginErr').innerText = "بيانات الدخول غير صحيحة";
       });
     }
 
+    function toggleQuickAdd() {
+      const box = document.getElementById('quickAddBox');
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    }
+
     auth.onAuthStateChanged(user => {
       if (user) {
+        currentEmail = user.email;
+        isFirstLoad = true;
+        knownDocIds.clear();
+        if ("Notification" in window && Notification.permission === "default") {
+          Notification.requestPermission();
+        }
         const entry = Object.values(USERS_MAP).find(x => x.email === user.email);
         document.getElementById('loginView').style.display = 'none';
         document.getElementById('workView').style.display = 'block';
@@ -64,63 +112,130 @@
       }
     });
 
-    function loadMyWork(email) {
-      db.collection('tickets')
-        .where('techEmail', '==', email)
-        .onSnapshot(snap => {
-          const container = document.getElementById('myTickets');
-          container.innerHTML = '';
-          let count = 0;
+    function addQuickTicket() {
+      const cName = document.getElementById('qName').value.trim();
+      const cPhone = document.getElementById('qPhone').value.trim();
+      const dType = document.getElementById('qType').value.trim();
+      const dIssue = document.getElementById('qIssue').value.trim();
+      const photoFile = document.getElementById('qPhoto').files[0];
 
-          snap.forEach(doc => {
-            const d = doc.data();
-            if (d.status === 'delivered') return;
-            count++;
+      if (!cName || !cPhone || !dType || !dIssue) {
+        alert("أكمل الاسم والموبايل والجهاز والعطل");
+        return;
+      }
 
-            container.innerHTML += `
-              <div class="card">
-                <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
-                  <strong style="font-size:1.1rem; color:#fff;">${d.deviceType}</strong>
-                  <span style="color:#38bdf8; font-weight:bold;">${d.ticketId}</span>
-                </div>
-                <div class="meta">
-                  <strong>العميل:</strong> ${d.customerName} (${d.phone})<br>
-                  <strong>العطل:</strong> ${d.issue}<br>
-                  <strong>الملحقات:</strong> ${d.accessories}
-                </div>
+      const entry = Object.values(USERS_MAP).find(x => x.email === currentEmail);
+      const techName = entry ? entry.name : currentEmail;
 
-                <label style="font-size:0.85rem; color:#cbd5e1;">حالة الصيانة:</label>
-                <select id="st_${doc.id}">
-                  <option value="new" ${d.status==='new'?'selected':''}>تم الاستلام</option>
-                  <option value="working" ${d.status==='working'?'selected':''}>جاري الفحص والصيانة</option>
-                  <option value="parts" ${d.status==='parts'?'selected':''}>في انتظار قطع غيار</option>
-                  <option value="done" ${d.status==='done'?'selected':''}>تم الإصلاح - جاهز للاستلام</option>
-                  <option value="rejected" ${d.status==='rejected'?'selected':''}>لا يمكن الإصلاح / مرفوض</option>
-                </select>
+      readImageAsCompressedBase64(photoFile, (photoBase64) => {
+        const accs = Array.from(document.querySelectorAll('#quickAddBox .checks input:checked')).map(c => c.value).join(' - ');
+        const ticketId = "FIX-" + Math.floor(1000 + Math.random() * 9000);
 
-                <div style="display:flex; gap:8px;">
-                  <div style="flex:1;">
-                    <label style="font-size:0.85rem; color:#cbd5e1;">سعر الصيانة للزبون:</label>
-                    <input type="number" id="fc_${doc.id}" value="${d.finalCost || 0}">
-                  </div>
-                  <div style="flex:1;">
-                    <label style="font-size:0.85rem; color:#cbd5e1;">تكلفة قطع الغيار:</label>
-                    <input type="number" id="pc_${doc.id}" value="${d.partsCost || 0}">
-                  </div>
-                </div>
-
-                <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
-                <textarea id="nt_${doc.id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
-
-                <button class="btn btn-save" onclick="updateTicket('${doc.id}')">حفظ وتحديث الحالة</button>
-              </div>
-            `;
-          });
-
-          if (count === 0) {
-            container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة معلقة حالياً.</p></div>';
-          }
+        db.collection('tickets').add({
+          ticketId, customerName: cName, phone: cPhone, deviceType: dType,
+          serial: '', issue: dIssue, accessories: accs || 'لا يوجد',
+          photoBase64: photoBase64 || '',
+          techEmail: currentEmail, techName, status: 'new',
+          finalCost: 0, partsCost: 0, publicNotes: '',
+          reminderDisabled: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        }).then(() => {
+          alert("تم إضافة الجهاز: " + ticketId);
+          document.getElementById('qName').value = '';
+          document.getElementById('qPhone').value = '';
+          document.getElementById('qType').value = '';
+          document.getElementById('qIssue').value = '';
+          document.getElementById('qPhoto').value = '';
+          toggleQuickAdd();
         });
+      });
+    }
+
+    function loadMyWork(email) {
+      db.collection('tickets').onSnapshot(snap => {
+        const container = document.getElementById('myTickets');
+        container.innerHTML = '';
+        let count = 0;
+
+        snap.forEach(doc => {
+          const d = doc.data();
+
+          if (!isFirstLoad && !knownDocIds.has(doc.id) && d.techEmail === email && d.status !== 'delivered') {
+            triggerNewDeviceNotification(d);
+          }
+          knownDocIds.add(doc.id);
+
+          if (d.status === 'delivered') return;
+
+          const isMine = d.techEmail === email;
+          const isAhmedCoveringYoussef = (email === 'ahmedshaheen@shop.local' && d.techEmail === 'beytibee@shop.local');
+          if (!isMine && !isAhmedCoveringYoussef) return;
+
+          count++;
+
+          const cycle = getReminderCycle(d.createdAt);
+          const showReminder = (!d.reminderDisabled && cycle >= 1 && (
+            (email === 'amrataallah@shop.local' && d.techEmail === 'amrataallah@shop.local') ||
+            (email === 'ahmedshaheen@shop.local' && (d.techEmail === 'ahmedshaheen@shop.local' || d.techEmail === 'beytibee@shop.local'))
+          ));
+
+          const waPhone = d.phone.startsWith('0') ? '2' + d.phone : d.phone;
+          const siteUrl = window.location.href.replace('tech.html', 'index.html') + '?q=' + d.ticketId;
+          const waMsg = encodeURIComponent(`أهلاً أ/ ${d.customerName}\nبخصوص جهازك (${d.deviceType}) - كود ${d.ticketId}\nيمكنك متابعة الحالة من هنا:\n${siteUrl}`);
+          const showWaButton = (email === 'amrataallah@shop.local' || email === 'ahmedshaheen@shop.local');
+
+          container.innerHTML += `
+            <div class="card">
+              ${showReminder ? `<div class="reminder-box">تذكير رقم (${cycle}): مر ${cycle * 7} أيام أو أكثر على استلام الجهاز، يرجى الاتصال بالعميل (${d.customerName} - ${d.phone}).</div>` : ''}
+              <div style="display:flex; justify-content:space-between; margin-bottom:8px;">
+                <strong style="font-size:1.1rem; color:#fff;">${d.deviceType}</strong>
+                <span style="color:#38bdf8; font-weight:bold;">${d.ticketId}</span>
+              </div>
+              <div class="meta">
+                <strong>العميل:</strong> ${d.customerName} (${d.phone})<br>
+                <strong>المسؤول:</strong> ${d.techName}<br>
+                <strong>العطل:</strong> ${d.issue}<br>
+                <strong>الملحقات:</strong> ${d.accessories}
+              </div>
+              ${d.photoBase64 ? `<img src="${d.photoBase64}" class="thumb" alt="صورة الجهاز">` : ''}
+
+              <label style="font-size:0.85rem; color:#cbd5e1;">حالة الصيانة:</label>
+              <select id="st_${doc.id}">
+                <option value="new" ${d.status==='new'?'selected':''}>تم الاستلام</option>
+                <option value="working" ${d.status==='working'?'selected':''}>جاري الفحص والصيانة</option>
+                <option value="parts" ${d.status==='parts'?'selected':''}>في انتظار قطع غيار</option>
+                <option value="done" ${d.status==='done'?'selected':''}>تم الإصلاح - جاهز للاستلام</option>
+                <option value="rejected" ${d.status==='rejected'?'selected':''}>لا يمكن الإصلاح / مرفوض</option>
+              </select>
+
+              <div style="display:flex; gap:8px;">
+                <div style="flex:1;">
+                  <label style="font-size:0.85rem; color:#cbd5e1;">سعر الصيانة للزبون:</label>
+                  <input type="number" id="fc_${doc.id}" value="${d.finalCost || 0}">
+                </div>
+                <div style="flex:1;">
+                  <label style="font-size:0.85rem; color:#cbd5e1;">تكلفة قطع الغيار:</label>
+                  <input type="number" id="pc_${doc.id}" value="${d.partsCost || 0}">
+                </div>
+              </div>
+
+              <label style="font-size:0.85rem; color:#cbd5e1;">تقرير الصيانة (يظهر للزبون):</label>
+              <textarea id="nt_${doc.id}" rows="2" placeholder="مثال: تم تغيير آيسي الشحن وتنظيف البوردة...">${d.publicNotes || ''}</textarea>
+
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-save" style="flex:1;" onclick="updateTicket('${doc.id}')">حفظ وتحديث الحالة</button>
+                ${showWaButton ? `<a href="https://wa.me/${waPhone}?text=${waMsg}" target="_blank" class="btn btn-sm btn-wa">واتساب</a>` : ''}
+              </div>
+            </div>
+          `;
+        });
+
+        isFirstLoad = false;
+
+        if (count === 0) {
+          container.innerHTML = '<div class="box"><p style="text-align:center; margin:0; color:#94a3b8;">لا توجد أجهزة معلقة حالياً.</p></div>';
+        }
+      });
     }
 
     function updateTicket(docId) {
